@@ -301,9 +301,10 @@ public:
 
           // Check if buffer exists in use_list_
           if (!use_list_.count(buffer)) {
-            LOG(WARNING) << "Buffer " << buffer << " not found in use_list_. "
-                         << "Potential mismatch between inference updates and "
-                         << "use_list_.";
+            LOG(WARNING) << "Layout inference failed for buffer " << buffer
+                         << ". "
+                         << "The buffer cannot be inferred with current layout "
+                            "inference rules.";
             continue;
           }
 
@@ -481,6 +482,8 @@ private:
       auto map =
           op->annotations.Get(attr::kLayoutMap).as<Map<Var, Layout>>().value();
       for (const auto &[var, layout] : map) {
+        ICHECK(buffer_data_to_buffer_.count(var))
+            << "buffer " << var << " is not found in the block";
         auto buffer = buffer_data_to_buffer_[var];
         ICHECK(StructuralEqual()(layout->InputShape(), buffer->shape));
         annotated_layout_map_.Set(buffer, layout);
