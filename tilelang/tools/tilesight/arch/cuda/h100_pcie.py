@@ -33,30 +33,6 @@ class H100_PCIE(Arch):
         self.register_capacity_per_sm = 256 * (1024**1)  # Bytes
         self.warp_schedulers_per_sm = 4
 
-        # ComputeUnit instances will be assigned by subclasses.
-        self.fp16_tensor_core_unit = None
-        self.fp32_cuda_core_unit = None
-        self.sfu_unit = None
-
-        # Derived performance metrics (will be calculated in compute_raw_metrics)
-        # These attributes now store raw FLOPs/second (not TFLOPS) and raw bandwidth (not GB/s).
-        self.fp16_tensor_flops = 0.0
-        self.fp32_cuda_core_flops = 0.0
-        self.sfu_flops = 0.0
-        self.smem_bandwidth = 0.0  # Bytes per second
-        self.register_bandwidth = 0.0  # Bytes per second
-
-        # Utilization limits
-        self.ddr_max_util = 0.9
-        self.l2_max_util = 0.9
-        self.l1_max_util = 0.9
-        self.compute_max_util = 0.9
-
-        self.core = "H100_PCIE"
-        self.sm_count = 114
-        self.base_freq = 1.42 * 1e9  # Base operating frequency (Hz)
-        self.freq = self.max_freq  # Set the current operating frequency for calculations
-
         # --- Instantiate ComputeUnit objects for H100 ---
         # These represent the physical compute cores with their specific capabilities.
         self.fp16_tensor_core_unit = ComputeUnit(
@@ -156,8 +132,6 @@ class H100_PCIE(Arch):
         Configures H100_PCIE based on NCU observed parameters.
         This method adjusts parameters to match real-world profiling data from NCU.
         """
-        self.base_freq = 1.06 * 1e9
-        self.max_freq = 1.06 * 1e9
         self.freq = 1.06 * 1e9  # Set operating frequency based on NCU data
 
         self.ddr_max_util = 0.9
