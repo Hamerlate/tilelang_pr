@@ -161,6 +161,7 @@ def matmul(M, N, K, with_roller):
         configs=get_configs(M, N, K, with_roller),
         warmup=3,
         rep=20,
+        ref_prog=ref_program,
     )
     @jit(out_idx=[2],)
     def kernel(

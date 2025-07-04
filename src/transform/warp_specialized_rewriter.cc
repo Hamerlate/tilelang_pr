@@ -107,6 +107,9 @@ public:
         role = Role::kProducer;
         has_bulk_copy_ = true;
       }
+      if (call->op.same_as(loop_break())) {
+        role = Role::kBoth;
+      }
     }
     SetRole(op, role);
   }
@@ -174,6 +177,7 @@ public:
   }
 
   void VisitStmt_(const ForNode *op) final { HandleBodyStmt(op); }
+  void VisitStmt_(const WhileNode *op) final { HandleBodyStmt(op); }
   void VisitStmt_(const LetStmtNode *op) final { HandleBodyStmt(op); }
   void VisitStmt_(const AttrStmtNode *op) final { HandleBodyStmt(op); }
   void VisitStmt_(const AssertStmtNode *op) final { HandleBodyStmt(op); }

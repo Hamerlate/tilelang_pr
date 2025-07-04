@@ -89,6 +89,8 @@ private:
   bool enable_bf16_{false};
   // whether enable fp8
   bool enable_fp8_{false};
+  // whether enable sparse gemm
+  bool enable_sparse_gemm_{false};
   // whether enable int8
   bool enable_int8_{false};
   // whether enable warp shuffle intrinsics
@@ -99,6 +101,8 @@ private:
   bool need_mma_h_{false};
   // whether need cast_smem_ptr_to_int helper function
   bool need_cast_smem_ptr_to_int_{false};
+  // whether need cooperative_groups.h
+  bool need_cooperative_groups_{false};
   // Op attribute map
   OpAttrMap<bool> op_need_warp_shuffle_ =
       Op::GetAttrMap<bool>("cuda.need_warp_shuffle");

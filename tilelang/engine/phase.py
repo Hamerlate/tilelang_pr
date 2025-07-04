@@ -15,7 +15,8 @@ def allow_warp_specialized(pass_ctx: Optional[PassContext] = None,
 
     if pass_ctx is None:
         pass_ctx = tilelang.transform.get_pass_context()
-    if not is_cuda_target(target):
+    # Warp specialized pass is recommended for Hopper or later architectures
+    if not is_cuda_target(target) or not have_tma(target):
         return False
     disable_warp_specialized = pass_ctx.config.get("tl.disable_warp_specialized", False)
     return not disable_warp_specialized
@@ -23,22 +24,16 @@ def allow_warp_specialized(pass_ctx: Optional[PassContext] = None,
 
 def allow_tma_and_warp_specialized(pass_ctx: Optional[PassContext] = None,
                                    target: Optional[Target] = None) -> bool:
-    # avoid circular import
-    from tilelang.jit.adapter.utils import is_cuda_target
-
     if pass_ctx is None:
         pass_ctx = tilelang.transform.get_pass_context()
-    if not is_cuda_target(target) or not have_tma(target):
+    if not have_tma(target):
         return False
     disable_tma_lower = pass_ctx.config.get("tl.disable_tma_lower", False)
     return not disable_tma_lower and allow_warp_specialized(pass_ctx=pass_ctx, target=target)
 
 
 def allow_fence_proxy(target: Optional[Target] = None) -> bool:
-    # avoid circular import
-    from tilelang.jit.adapter.utils import is_cuda_target
-
-    return is_cuda_target(target) and have_tma(target)
+    return have_tma(target)
 
 
 def allow_vectorize(pass_ctx: Optional[PassContext] = None) -> bool:
@@ -53,6 +48,20 @@ def allow_global_thread_synchronization(pass_ctx: Optional[PassContext] = None) 
         pass_ctx = tilelang.transform.get_pass_context()
     enable_global_thread_sync = pass_ctx.config.get("tir.detect_global_barrier", False)
     return enable_global_thread_sync
+
+
+def should_enable_aggressive_merge(pass_ctx: Optional[PassContext] = None,
+                                   target: Optional[Target] = None) -> bool:
+    if pass_ctx is None:
+        pass_ctx = tilelang.transform.get_pass_context()
+    enable_aggressive_merge = bool(
+        pass_ctx.config.get(tilelang.PassConfigKey.TL_ENABLE_AGGRESSIVE_SHARED_MEMORY_MERGE, False))
+    if allow_warp_specialized(pass_ctx=pass_ctx, target=target):
+        # This is a workaround to avoid the bug in the MergeSharedMemoryAllocations pass
+        # when warp specialization is enabled, as different warp threads may access different
+        # buffers, but the liveness analysis is hard because we need to do pipeline.
+        enable_aggressive_merge = False
+    return enable_aggressive_merge
 
 
 def LowerAndLegalize(mod: IRModule, target: Target) -> IRModule:
@@ -73,12 +82,18 @@ def LowerAndLegalize(mod: IRModule, target: Target) -> IRModule:
     mod = tilelang.transform.LegalizeVectorizedLoop()(mod)
     # Add safety checks for memory accesses
     mod = tilelang.transform.LegalizeSafeMemoryAccess()(mod)
+    # Align dynamic shared memory allocations
+    if have_tma(target):
+        # Hopper Swizzling requires dynamic shared memory address to be aligned to 1024 bytes
+        mod = tilelang.transform.AlignDynamicSharedMemoryAllocations(1024)(mod)
+    else:
+        # For other devices, we align to 16 bytes
+        mod = tilelang.transform.AlignDynamicSharedMemoryAllocations(16)(mod)
     # Simplify again to clean up any duplicated conditions
     # that may have been introduced by safety checks
     mod = tir.transform.Simplify()(mod)
     # Try to vectorize loop with dynamic shape
     mod = tilelang.transform.LoopVectorizeDynamic()(mod)
-
     return mod
 
 
@@ -150,13 +165,9 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
     mod = tilelang.transform.AnnotateDeviceRegions()(mod)
     mod = tir.transform.SplitHostDevice()(mod)
 
-    if allow_warp_specialized(pass_ctx=pass_ctx, target=target):
-        # This is a workaround to avoid the bug in the MergeSharedMemoryAllocations pass
-        # when warp specialization is enabled, as different warp threads may access different
-        # buffers, but the liveness analysis is hard because we need to do pipeline.
-        mod = tir.transform.MergeSharedMemoryAllocations()(mod)
-    else:
-        mod = tilelang.transform.MergeSharedMemoryAllocations()(mod)
+    mod = tilelang.transform.MergeSharedMemoryAllocations(
+        enable_aggressive_merge=should_enable_aggressive_merge(pass_ctx=pass_ctx, target=target))(
+            mod)
 
     mod = tilelang.transform.ThreadSync("shared")(mod)
     mod = tilelang.transform.ThreadSync("shared.dyn")(mod)
@@ -167,5 +178,7 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
 
     mod = tilelang.transform.MakePackedAPI()(mod)
     mod = tir.transform.LowerDeviceKernelLaunch()(mod)
+    # Transform threadblock to persistent threadblock
+    mod = tilelang.transform.PersistThreadblock()(mod)
 
     return mod

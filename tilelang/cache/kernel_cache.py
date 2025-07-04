@@ -93,7 +93,7 @@ class KernelCache:
             str: SHA256 hash key for the kernel configuration.
         """
         self.execution_backend = execution_backend
-        func_binary = cloudpickle.dumps(func.script())
+        func_binary = cloudpickle.dumps(func.script(show_meta=True))
         key_data = {
             "version": __version__,
             "func": sha256(func_binary).hexdigest(),  # Use SHA256 to generate hash key
@@ -251,8 +251,9 @@ class KernelCache:
         # Save kernel source code
         try:
             kernel_path = os.path.join(cache_path, KERNEL_PATH)
-            with open(kernel_path, "w") as f:
-                f.write(kernel.artifact.kernel_source)
+            if kernel.artifact.kernel_source is not None:
+                with open(kernel_path, "w") as f:
+                    f.write(kernel.artifact.kernel_source)
         except Exception as e:
             self.logger.error(f"Error saving kernel source code to disk: {e}")
 
